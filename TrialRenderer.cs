@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static MissionPlanner.Plugins.AEOLUS.Mode.ScreenMode;
 
 namespace MissionPlanner.Plugins.AEOLUS
 {
@@ -58,7 +59,7 @@ namespace MissionPlanner.Plugins.AEOLUS
         private float sqr_mouse_min_dist = 0f;
         private bool is_time_scrub = false;
 
-        private PointF[] pointsArray = null;
+        private Frame[] frameArray = null;
         private const float OFFSET = 25f;
         private const float GRAB_DIST = 10f;
 
@@ -66,7 +67,7 @@ namespace MissionPlanner.Plugins.AEOLUS
         
         private void SetDotToLine()
         {
-            if (pointsArray == null) return;
+            if (frameArray == null) return;
 
             this.sqr_mouse_min_dist = float.MaxValue;
             PointF mouse_pos_local = this.PointToClient(MousePosition);
@@ -74,9 +75,9 @@ namespace MissionPlanner.Plugins.AEOLUS
             mouse_pos_local.X -= this.dx;
             mouse_pos_local.Y -= this.dy;
             
-            for (int i = 0; i < pointsArray.Length; i++)
+            for (int i = 0; i < frameArray.Length; i++)
             {
-                PointF p1 = pointsArray[i];
+                PointF p1 = frameArray[i].point;
 
                 PointF mouse_pos = mouse_pos_local.Subtract(p1);
                 float sqr_mouse_dist = mouse_pos.Dot(mouse_pos);
@@ -91,7 +92,7 @@ namespace MissionPlanner.Plugins.AEOLUS
                 if (i == 0) continue;
                 // check line segment between current and prev
 
-                PointF p0 = pointsArray[i - 1];
+                PointF p0 = frameArray[i - 1].point;
 
                 // no line segment if points are the same
                 if (p0.Equals(p1)) continue;
@@ -140,7 +141,7 @@ namespace MissionPlanner.Plugins.AEOLUS
             return this.frames[Math.Min(i, this.frames.Count-1)].time_ms - this.frames[0].time_ms;
         }
 
-        private PointF GetPointFromTime(int time)
+        private Frame GetPointFromTime(int time)
         {
             int idx = 0;
             while (idx < this.frames.Count - 1 && GetTimeAtFrame(idx) < time)
@@ -149,13 +150,13 @@ namespace MissionPlanner.Plugins.AEOLUS
             }
 
             int t0 = GetTimeAtFrame(idx);
-            PointF p0 = this.pointsArray[idx];
+            Frame p0 = this.frameArray[idx];
 
             if (t0 == time) return p0;
             if (idx == 0) return p0;
 
             int t1 = GetTimeAtFrame(idx-1);
-            PointF p1 = this.pointsArray[idx-1];
+            Frame p1 = this.frameArray[idx-1];
 
             float norm_diff = (float)(time - t1) / (t0 - t1);
             
@@ -263,7 +264,7 @@ namespace MissionPlanner.Plugins.AEOLUS
         //the white dot on the 2-D graph
         private void OnDotPaint(object sender, PaintEventArgs e)
         {
-            if (this.pointsArray == null)
+            if (this.frameArray == null)
             {
                 this.label.Text = "";
                 return;
@@ -271,30 +272,30 @@ namespace MissionPlanner.Plugins.AEOLUS
 
             e.Graphics.TranslateTransform(dx, dy);
 
-            PointF dot_p = this.GetPointFromTime(this.Time);
+            Frame dot_p = this.GetPointFromTime(this.Time);
             e.Graphics.FillEllipse
             (
                 new SolidBrush(Color.Yellow),
-                dot_p.X - 5,
-                dot_p.Y - 5,
+                dot_p.point.X - 5,
+                dot_p.point.Y - 5,
                 10,
                 10
             );
             
-            this.label.Text = string.Format("{0:0.00}m, {1:0.00}m",
-                dot_p.X / scaleFactor, dot_p.Y / scaleFactor);
+            this.label.Text = string.Format("{0:0.00}m, {1:0.00}m, {2:0.00}m",
+                dot_p.point.X / scaleFactor, dot_p.point.Y / scaleFactor, dot_p.z);
 
             if (this.dotLoc != -1)
             {
                 int dot_idx = (int)this.dotLoc;
                 float dot_rem = this.dotLoc - dot_idx;
 
-                PointF p0 = this.pointsArray[dot_idx];
+                PointF p0 = this.frameArray[dot_idx].point;
                 PointF point;
 
                 if (dot_rem != 0)
                 {
-                    PointF p1 = this.pointsArray[dot_idx + 1];
+                    PointF p1 = this.frameArray[dot_idx + 1].point;
 
                     point = MathUtils.Linear_Interpolate(p0, p1, dot_rem);
                 }
@@ -320,12 +321,10 @@ namespace MissionPlanner.Plugins.AEOLUS
             base.OnPaint(e);
             Graphics g = e.Graphics;
 
-            List<PointF> points = new List<PointF>();
+            List<Frame> frames = new List<Frame>();
             if (MainScreen.instance != null)
             {
-                points = 
-                    this.frames.ConvertAll<PointF>(
-                        (ScreenMode.Frame f) => { return f.point; });
+                frames = this.frames;
             }
 
             g.DrawRectangle
@@ -354,19 +353,19 @@ namespace MissionPlanner.Plugins.AEOLUS
                 y += 100f;
             }
             
-            if (points.Count < 2)
+            if (frames.Count < 2)
             {
-                pointsArray = null;
+                frameArray = null;
                 return;
             }
 
-            pointsArray = points.ToArray();
+            frameArray = frames.ToArray();
 
-            float minX = points.Min((p) => { return p.X; });
-            float maxX = points.Max((p) => { return p.X; });
+            float minX = frames.Min((f) => { return f.point.X; });
+            float maxX = frames.Max((f) => { return f.point.X; });
 
-            float minY = points.Min((p) => { return p.Y; });
-            float maxY = points.Max((p) => { return p.Y; });
+            float minY = frames.Min((f) => { return f.point.Y; });
+            float maxY = frames.Max((f) => { return f.point.Y; });
             
             this.sizeX = maxX - minX;
             this.sizeY = maxY - minY;
@@ -374,12 +373,14 @@ namespace MissionPlanner.Plugins.AEOLUS
             float ratio = Math.Min((this.Width - OFFSET * 2) / sizeX, (this.Height - OFFSET * 2) / sizeY);
             this.scaleFactor = ratio * this.zoom_level;
                 
-            for (int i = 0; i < pointsArray.Length; i++)
+            for (int i = 0; i < frameArray.Length; i++)
             {
-                pointsArray[i] = new PointF
+                frameArray[i] = new Frame
                 (
-                    pointsArray[i].X * scaleFactor,
-                    pointsArray[i].Y * scaleFactor
+                    frameArray[i].point.X * scaleFactor,
+                    frameArray[i].point.Y * scaleFactor,
+                    frameArray[i].z,
+                    frameArray[i].time_ms
                 );
             }
             
@@ -400,7 +401,7 @@ namespace MissionPlanner.Plugins.AEOLUS
             
             g.TranslateTransform(dx, dy);
 
-            g.DrawLines(Pens.Yellow, pointsArray);
+            g.DrawLines(Pens.Yellow, Array.ConvertAll<Frame, PointF>(frameArray, (Frame f) => { return f.point; }));
 
             Font font = new Font(SystemFonts.DefaultFont.FontFamily, 11f);
             //scalfactor is pixels per meter
